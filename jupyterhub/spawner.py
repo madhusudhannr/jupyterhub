@@ -46,6 +46,9 @@ from .utils import maybe_future
 from .utils import random_port
 from .utils import url_path_join
 
+import pwd
+from tornado.process import Subprocess
+
 # FIXME: remove when we drop Python 3.5 support
 
 
@@ -1620,3 +1623,38 @@ class SimpleLocalProcessSpawner(LocalProcessSpawner):
     def move_certs(self, paths):
         """No-op for installing certs"""
         return paths
+
+
+
+class CustomSimpleLocalProcessSpawner(SimpleLocalProcessSpawner):
+
+    sudospawner_path = Unicode(shutil.which('sudospawner') or 'sudospawner', config=True,
+                               help="Path to sudospawner script"
+                               )
+    sudo_args = List(['-nH'], config=True,
+                     help="Extra args to pass to sudo"
+                     )
+
+    def userExists(username):
+        try:
+            pwd.getpwnam(username)
+            return True
+        except KeyError:
+            print('User someusr does not exist.')
+            return False
+
+    async def start(self):
+        username = self.user.name
+        if not userExists(username):
+            super().start()
+        else:
+            cmd = ['sudo', '-u', self.user.name]
+            cmd.extend(self.sudo_args)
+            cmd.append(self.sudospawner_path)
+            p = Subprocess(cmd, stdin=Subprocess.STREAM, stdout=Subprocess.STREAM, stderr=Subprocess.STREAM) #preexec_fn=self.make_preexec_fn()
+            stderr_future = self.relog_stderr(p.stderr)
+            # hand the stderr future to the IOLoop so it isn't orphaned,
+            # even though we aren't going to wait for it unless there's an error
+  #          IOLoop.current().add_callback(lambda: stderr_future)
+
+
